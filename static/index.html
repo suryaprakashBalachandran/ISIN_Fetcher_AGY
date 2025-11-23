@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ISIN Fetcher</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+    <div class="container">
+        <div class="logo-header">
+            <img src="/static/logo.png" alt="SecuriFind Logo" class="logo">
+            <span class="app-name">SecuriFind</span>
+        </div>
+
+        <header>
+            <h1>Find ISINs Instantly</h1>
+            <p>Upload a CSV file with company/fund names to fetch their ISIN codes</p>
+        </header>
+
+        <div class="upload-section">
+            <div class="upload-box" id="uploadBox">
+                <input type="file" id="fileInput" accept=".csv" hidden>
+                <div class="upload-content">
+                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="17 8 12 3 7 8"></polyline>
+                        <line x1="12" y1="3" x2="12" y2="15"></line>
+                    </svg>
+                    <p class="upload-text">Drag & drop your CSV file here or click to browse</p>
+                    <p class="upload-hint">CSV should contain company/fund names (one per line or with headers)</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="loading" id="loading" style="display: none;">
+            <div class="spinner"></div>
+            <p>Fetching ISINs... This may take a moment.</p>
+        </div>
+
+        <div class="results-section" id="resultsSection" style="display: none;">
+            <div class="results-header">
+                <h2>Results</h2>
+                <button class="btn btn-download" id="downloadBtn">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                    Download CSV
+                </button>
+            </div>
+
+            <div class="stats" id="stats"></div>
+
+            <div class="table-container">
+                <table id="resultsTable">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Company/Fund Name</th>
+                            <th>ISIN</th>
+                            <th>Source</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="resultsBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const uploadBox = document.getElementById('uploadBox');
+        const fileInput = document.getElementById('fileInput');
+        const loading = document.getElementById('loading');
+        const resultsSection = document.getElementById('resultsSection');
+        const resultsBody = document.getElementById('resultsBody');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const stats = document.getElementById('stats');
+
+        let currentResults = [];
+
+        // Upload box click
+        uploadBox.addEventListener('click', () => fileInput.click());
+
+        // Drag and drop
+        uploadBox.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadBox.classList.add('dragover');
+        });
+
+        uploadBox.addEventListener('dragleave', () => {
+            uploadBox.classList.remove('dragover');
+        });
+
+        uploadBox.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadBox.classList.remove('dragover');
+            const file = e.dataTransfer.files[0];
+            if (file && file.name.endsWith('.csv')) {
+                handleFile(file);
+            } else {
+                alert('Please upload a CSV file');
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) handleFile(file);
+        });
+
+        async function handleFile(file) {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            loading.style.display = 'block';
+            resultsSection.style.display = 'none';
+
+            try {
+                const response = await fetch('/upload-csv', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) throw new Error('Upload failed');
+
+                const results = await response.json();
+                currentResults = results;
+                displayResults(results);
+            } catch (error) {
+                alert('Error processing file: ' + error.message);
+            } finally {
+                loading.style.display = 'none';
+            }
+        }
+
+        function displayResults(results) {
+            resultsBody.innerHTML = '';
+
+            let foundCount = 0;
+            results.forEach((result, index) => {
+                const row = document.createElement('tr');
+                const isFound = result.isin !== null;
+                if (isFound) foundCount++;
+
+                row.innerHTML = `
+                    <td>${index + 1}</td>
+                    <td>${result.query}</td>
+                    <td class="isin">${result.isin || '-'}</td>
+                    <td class="source">${result.source}</td>
+                    <td><span class="status ${isFound ? 'success' : 'failed'}">${isFound ? '✓ Found' : '✗ Not Found'}</span></td>
+                `;
+                resultsBody.appendChild(row);
+            });
+
+            stats.innerHTML = `
+                <div class="stat-item">
+                    <span class="stat-label">Total:</span>
+                    <span class="stat-value">${results.length}</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Found:</span>
+                    <span class="stat-value success">${foundCount}</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Not Found:</span>
+                    <span class="stat-value failed">${results.length - foundCount}</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Success Rate:</span>
+                    <span class="stat-value">${Math.round(foundCount / results.length * 100)}%</span>
+                </div>
+            `;
+
+            resultsSection.style.display = 'block';
+        }
+
+        downloadBtn.addEventListener('click', () => {
+            const csv = convertToCSV(currentResults);
+            // Add UTF-8 BOM for better Excel compatibility
+            const BOM = '\uFEFF';
+            const blob = new Blob([BOM + csv], { type: 'text/csv;charset=utf-8;' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T')[0];
+            a.download = `securifind_isin_results_${timestamp}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+            
+            // Show confirmation
+            const originalText = downloadBtn.innerHTML;
+            downloadBtn.innerHTML = `
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+                Downloaded!
+            `;
+            setTimeout(() => {
+                downloadBtn.innerHTML = originalText;
+            }, 2000);
+        });
+
+        function convertToCSV(results) {
+            const headers = ['#', 'Company/Fund Name', 'ISIN', 'Source', 'Status'];
+            const rows = results.map((r, index) => [
+                index + 1,
+                `"${r.query.replace(/"/g, '""')}"`,  // Escape quotes
+                r.isin || 'N/A',
+                `"${r.source.replace(/"/g, '""')}"`,  // Escape quotes
+                r.isin ? 'Found' : 'Not Found'
+            ]);
+
+            return [
+                headers.join(','),
+                ...rows.map(row => row.join(','))
+            ].join('\r\n');  // Use Windows line endings for better compatibility
+        }
+    </script>
+</body>
+
+</html>
